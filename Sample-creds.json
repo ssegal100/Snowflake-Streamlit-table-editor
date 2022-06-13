@@ -1,0 +1,9 @@
+{
+  "account": "accountABC",
+  "user": "admin",
+  "password": "***** ",
+  "role": "ACCOUNTADMIN",
+  "warehouse": "test_xs",
+  "database": "mydatabase",
+  "schema": "PUBLIC"
+}
