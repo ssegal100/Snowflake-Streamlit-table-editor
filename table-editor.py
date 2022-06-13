@@ -361,20 +361,23 @@ with st.sidebar.expander(table_message, expanded=True):
 ####################################################################################################################################
 
 def update_db_callback(_update_type):
-    if _update_type == 'Merge':
-        merge_data_callback()
-    else:
-        if _update_type == 'Insert':
-            if st.session_state.truncate_table_cb:
-                truncate_and_insert_data_callback()
-            else:
-                insert_data_callback()
+    try:
+        if _update_type == 'Merge':
+            merge_data_callback()            
         else:
-            if _update_type == 'Delete Selected':
-                delete_data_callback()
+            if _update_type == 'Insert':
+                if st.session_state.truncate_table_cb:
+                    truncate_and_insert_data_callback()
+                else:
+                    insert_data_callback()
             else:
-                if _update_type == 'Create New Table':
-                    create_new_table_callback()
+                if _update_type == 'Delete Selected':
+                    delete_data_callback()
+                else:
+                    if _update_type == 'Create New Table':
+                        create_new_table_callback()
+    except BaseException as e:
+            st.error('Update Failed: ' + str(e))
 
 if 'file_chosen' not in st.session_state:
         st.session_state.file_chosen = False
