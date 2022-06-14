@@ -1,3 +1,4 @@
+from requests import session
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -27,6 +28,7 @@ def get_snowflake_session(_force_login):
                 st.session_state.user = connection_parameters["user"]
                 st.session_state.password = connection_parameters["password"]
                 st.session_state.role = connection_parameters["role"]
+                st.session_state.warehouse = connection_parameters["warehouse"]
             try:
                 session = Session.builder.configs(connection_parameters).create()
                 st.session_state.snowparksession = session   
@@ -40,7 +42,7 @@ def get_snowflake_session(_force_login):
     else:
         session=st.session_state.snowparksession
         try:
-            a = st.session_state.snowparksession.sql('Select 1').show(1)
+            st.session_state.snowparksession.sql('Select 1').collect()
         except BaseException as e:
             st.error('Login Failed. Please login again.')# + str(e))
             
@@ -54,6 +56,7 @@ if 'account' not in st.session_state or 'user' not in st.session_state or 'passw
     st.session_state.password =""
     st.session_state.role =""
     st.session_state.authenticator=""
+    st.session_state.warehouse=""
 
 if 'login_expanded' not in st.session_state and 'snowparksession' not in st.session_state:
     st.session_state.login_expanded = True
@@ -66,10 +69,12 @@ def logout_callback():
     st.session_state.snowparksession.sql(f'select SYSTEM$ABORT_SESSION( {sessionid} )').collect()
 
 def login_callback():
+    st.session_state.database_list =""
     connection_parameters = {
    "account": st.session_state.account,
     "user": st.session_state.user,
-    "role": st.session_state.role
+    "role": st.session_state.role,
+    "warehouse":st.session_state.warehouse
     }
     if st.session_state.authenticator!="":
         connection_parameters["authenticator"] = st.session_state.authenticator
@@ -101,6 +106,7 @@ with st.sidebar.expander(expander_message, expanded=st.session_state.login_expan
         else:
             st.session_state.authenticator='externalbrowser'
         st.text_input("Role", key='role',  value=st.session_state.role)
+        st.text_input("Warehouse", key='warehouse',  value=st.session_state.warehouse)
         st.form_submit_button("Login", on_click=login_callback)
 #used to test session expiring
 #st.button("Logout", on_click=logout_callback)
@@ -138,8 +144,8 @@ if 'table_selected' not in st.session_state:
 if 'new_table' not in st.session_state:
     st.session_state.new_table= ""
 
-if 'truncate_table_cb' not in st.session_state:
-    st.session_state.truncate_table_cb=False
+# if 'truncate_table_cb' not in st.session_state:
+#     st.session_state.truncate_table_cb=False
 if 'db_objects_selectors_expanded' not in st.session_state:
     st.session_state.db_objects_selectors_expanded = False
 
@@ -165,15 +171,24 @@ def table_selected_callback():
         st.session_state.load_type="table"
 
 def get_database_list():
-    df = st.session_state.snowparksession.sql("show databases")
-    df.show(100)
+    df = st.session_state.snowparksession.sql("show databases").collect()
+    #df.show(100)
     get_dbs_sql = "WITH databases (a,name,b,c,d,e,f,g,h) as (select * from table(result_scan(last_query_id()))) select name from databases"        
     db_df = st.session_state.snowparksession.sql(get_dbs_sql)
     return db_df.toPandas()
 
+def get_current_database():
+    df = st.session_state.snowparksession.sql("select current_database() DB").toPandas()
+    return df['DB'].iloc[0]
 
 def load_data():
     df=st.session_state.snowparksession.table(st.session_state.fully_qualified_table_selected).limit(row_limit) 
+    # df.show(10)
+    # pdf = df.toPandas()
+    # pdf
+    # d = st.session_state.snowparksession.create_dataframe(pdf)
+    # d.show(10)
+    # st.session_state.snowparksession.write_pandas(pdf, st.session_state.table_selected, auto_create_table=False, create_temp_table=True)
     return df.toPandas()
 
 grid_loaded=False
@@ -212,19 +227,16 @@ def display_grid(_pdf):
 def redraw_grid_next_time():
     st.session_state.grid_key = st.session_state.grid_key +1
    
-def insert_data_callback(_table_name=st.session_state.table_selected):
-    #session.sql()
-    st.session_state.snowparksession.write_pandas(st.session_state.maindf, _table_name, auto_create_table=True, create_temp_table=False)
+def insert_data_callback(_Append_Or_Overwrite, _table_name=st.session_state.table_selected):
+    d = st.session_state.snowparksession.create_dataframe(st.session_state.maindf)
+    d.write.save_as_table(_table_name, mode=_Append_Or_Overwrite)
 
 def create_new_table_callback():
-    insert_data_callback(st.session_state.new_table)
+    insert_data_callback("append",st.session_state.new_table)
+    st.session_state.snowparksession.sql('commit').collect()
     s = pd.DataFrame({'TABLE_NAME':[st.session_state.new_table]})
     st.session_state.table_list = pd.concat([st.session_state.table_list, s])
     st.session_state.table_selected = st.session_state.new_table
-#todo: check to see if tables already exists. 
-def truncate_and_insert_data_callback():
-    st.session_state.snowparksession.sql(f'truncate table {st.session_state.fully_qualified_table_selected}').collect()
-    insert_data_callback()
 
 def get_key_join_clasue(_source_df,_target_df):
     key_cols = ""
@@ -331,8 +343,15 @@ with st.sidebar.expander(table_message, expanded=True):
     if len(st.session_state.database_list) ==0 :
         st.session_state.firs_pass = True
         st.session_state.database_list = get_database_list()
+        default_db = get_current_database()
+        if default_db is None:
+            db_to_select=0    
+        else:
+            db_to_select = st.session_state.database_list.index[st.session_state.database_list['NAME']==default_db].tolist()[0]
         st.session_state.database_changed=True
-    st.selectbox("Databases",st.session_state.database_list, on_change=database_selected_callback, key = 'database_selected' )          
+        st.selectbox("Databases",st.session_state.database_list, on_change=database_selected_callback, key = 'database_selected', index= db_to_select)
+    else:
+        st.selectbox("Databases",st.session_state.database_list, on_change=database_selected_callback, key = 'database_selected')          
     if st.session_state.database_changed:
         #Get Schemas
         get_schemas_sql = f"select schema_name from {st.session_state.database_selected}.information_schema.schemata "
@@ -364,18 +383,15 @@ def update_db_callback(_update_type):
     try:
         if _update_type == 'Merge':
             merge_data_callback()            
+        elif _update_type == 'Insert - Append':
+            insert_data_callback('append')
+        elif _update_type == 'Insert - Overwrite':
+            insert_data_callback('overwrite')
+        elif _update_type == 'Delete Selected':
+                delete_data_callback()
         else:
-            if _update_type == 'Insert':
-                if st.session_state.truncate_table_cb:
-                    truncate_and_insert_data_callback()
-                else:
-                    insert_data_callback()
-            else:
-                if _update_type == 'Delete Selected':
-                    delete_data_callback()
-                else:
-                    if _update_type == 'Create New Table':
-                        create_new_table_callback()
+            if _update_type == 'Create New Table':
+                create_new_table_callback()
     except BaseException as e:
             st.error('Update Failed: ' + str(e))
 
@@ -424,15 +440,15 @@ if not st.session_state.firs_pass:
 st.session_state.firs_pass = False
 if len(st.session_state.maindf)>0: 
     with st.sidebar.expander("Save Data to Snowflake"):
-        update_type = st.selectbox('Select Update Type:',('Merge', 'Insert', 'Delete Selected', 'Create New Table'))
+        update_type = st.selectbox('Select Update Type:',('Merge', 'Insert - Append','Insert - Overwrite', 'Delete Selected', 'Create New Table'))
         if update_type == 'Merge' or update_type =='Delete Selected':
             if 'table_keys' not in st.session_state:
                 st.session_state.table_keys='';
             table_keys = st.session_state.table_keys
             table_keys = st.multiselect("Select Keys:", list(st.session_state.maindf.columns))
             st.session_state.table_keys = table_keys
-        if update_type == 'Insert':
-            st.checkbox('Truncate table before Insert', key='truncate_table_cb') 
+        # if update_type == 'Insert':
+        #     st.checkbox('Truncate table before Insert', key='truncate_table_cb') 
         if update_type == 'Create New Table':
             st.text_input("Table Name", key='new_table')
         st.button(update_type, on_click=update_db_callback, args=(update_type,))
