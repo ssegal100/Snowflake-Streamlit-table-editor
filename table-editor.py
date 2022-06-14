@@ -45,7 +45,6 @@ def get_snowflake_session(_force_login):
             st.session_state.snowparksession.sql('Select 1').collect()
         except BaseException as e:
             st.error('Login Failed. Please login again.')# + str(e))
-            
             get_snowflake_session(True)
 
 get_snowflake_session(False)
@@ -183,11 +182,12 @@ def get_current_database():
 
 def load_data():
     try:
-        df=st.session_state.snowparksession.table(st.session_state.fully_qualified_table_selected).limit(row_limit).toPandas() 
+        df=st.session_state.snowparksession.table(st.session_state.fully_qualified_table_selected).limit(row_limit)
+        pdf = df.toPandas() 
     except BaseException as e:
         st.error('Failed to do load table: ' + str(e))
-        df = pd.DataFrame
-    return df
+        pdf = pd.DataFrame
+    return pdf
 
 grid_loaded=False
 
@@ -455,6 +455,7 @@ def reload_callback():
     st.session_state.reload_bt = True
 
 st.sidebar.button("Reload Data", on_click=reload_callback)
+st.sidebar.button("Add Row", on_click=add_row_callback)
 
 with st.expander('Known Issues:'):
     st.markdown("""
