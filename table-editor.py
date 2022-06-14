@@ -250,6 +250,7 @@ def delete_data_callback():
         return       
     if  len(table_keys) ==0:
         st.error("Please define a Key before deleting")
+        st.session_state.reload_data=False
         return
     df=pd.DataFrame(st.session_state.grid['selected_rows'])
     if len(df)==0:
@@ -430,7 +431,7 @@ if not st.session_state.firs_pass:
                 display_grid(initial_df)
                 st.session_state.initialdf = st.session_state.maindf.copy(deep=True)
     elif len(st.session_state.maindf)>0:  # if the data from the grid previously existed then use that
-        display_grid(st.session_state.maindf)
+       display_grid(st.session_state.maindf)
 
 #Database updates
 st.session_state.firs_pass = False
@@ -452,4 +453,16 @@ if len(st.session_state.maindf)>0:
 
 def reload_callback():
     st.session_state.reload_bt = True
+
 st.sidebar.button("Reload Data", on_click=reload_callback)
+
+with st.expander('Known Issues:'):
+    st.markdown("""
+    ### Timestamp Columns - Can't write back
+    There is a Snowpark bug that can be addressed by setting account params in the production deployments
+    ``` 
+    alter account <account_locator> set enable_parquet_timestamp_new_logical_type=true 
+    alter account <account_locator> set enable_parquet_new_logical_type_infer_schema=true
+    ```  
+    ### Working on Variant writebacks
+    """)
