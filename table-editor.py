@@ -171,7 +171,7 @@ def table_selected_callback():
         st.session_state.load_type="table"
 
 def get_database_list():
-    df = st.session_state.snowparksession.sql("show databases").collect()
+    st.session_state.snowparksession.sql("show databases").collect()
     #df.show(100)
     get_dbs_sql = "WITH databases (a,name,b,c,d,e,f,g,h) as (select * from table(result_scan(last_query_id()))) select name from databases"        
     db_df = st.session_state.snowparksession.sql(get_dbs_sql)
@@ -182,14 +182,12 @@ def get_current_database():
     return df['DB'].iloc[0]
 
 def load_data():
-    df=st.session_state.snowparksession.table(st.session_state.fully_qualified_table_selected).limit(row_limit) 
-    # df.show(10)
-    # pdf = df.toPandas()
-    # pdf
-    # d = st.session_state.snowparksession.create_dataframe(pdf)
-    # d.show(10)
-    # st.session_state.snowparksession.write_pandas(pdf, st.session_state.table_selected, auto_create_table=False, create_temp_table=True)
-    return df.toPandas()
+    try:
+        df=st.session_state.snowparksession.table(st.session_state.fully_qualified_table_selected).limit(row_limit).toPandas() 
+    except BaseException as e:
+        st.error('Failed to do load table: ' + str(e))
+        df = pd.DataFrame
+    return df
 
 grid_loaded=False
 
@@ -345,13 +343,11 @@ with st.sidebar.expander(table_message, expanded=True):
         st.session_state.database_list = get_database_list()
         default_db = get_current_database()
         if default_db is None:
-            db_to_select=0    
+            st.session_state.db_to_select=0    
         else:
-            db_to_select = st.session_state.database_list.index[st.session_state.database_list['NAME']==default_db].tolist()[0]
+            st.session_state.db_to_select = st.session_state.database_list.index[st.session_state.database_list['NAME']==default_db].tolist()[0]
         st.session_state.database_changed=True
-        st.selectbox("Databases",st.session_state.database_list, on_change=database_selected_callback, key = 'database_selected', index= db_to_select)
-    else:
-        st.selectbox("Databases",st.session_state.database_list, on_change=database_selected_callback, key = 'database_selected')          
+    st.selectbox("Databases",st.session_state.database_list, on_change=database_selected_callback, key = 'database_selected', index= st.session_state.db_to_select)        
     if st.session_state.database_changed:
         #Get Schemas
         get_schemas_sql = f"select schema_name from {st.session_state.database_selected}.information_schema.schemata "
@@ -429,7 +425,7 @@ if not st.session_state.firs_pass:
                     st.error("Please select a table")
                 else:
                     initial_df = load_data() 
-            if 'initial_df' in locals():  
+            if 'initial_df' in locals() and not initial_df.empty:  
                 redraw_grid_next_time()  
                 display_grid(initial_df)
                 st.session_state.initialdf = st.session_state.maindf.copy(deep=True)
