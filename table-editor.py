@@ -1,4 +1,4 @@
-from requests import session
+from cmath import e
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,6 +9,7 @@ from snowflake.snowpark.functions import when_not_matched, when_matched
 from st_aggrid import AgGrid, GridUpdateMode, JsCode
 from st_aggrid.grid_options_builder import GridOptionsBuilder
 import json
+from datetime import timezone, datetime
 
 st.set_page_config(layout="wide")
 
@@ -31,13 +32,11 @@ def get_snowflake_session(_force_login):
                 st.session_state.warehouse = connection_parameters["warehouse"]
             try:
                 session = Session.builder.configs(connection_parameters).create()
-                st.session_state.snowparksession = session   
+                st.session_state.snowparksession = session
             except BaseException as e:
-                loggedin=False
                 st.error('Login Failed from Config file.  ' + str(e))
                 st.session_state.snowparksession =""
         except BaseException as e:
-            loggedin=False
             st.session_state.snowparksession =""
     else:
         session=st.session_state.snowparksession
@@ -46,7 +45,8 @@ def get_snowflake_session(_force_login):
         except BaseException as e:
             st.error('Login Failed. Please login again.')# + str(e))
             get_snowflake_session(True)
-
+#             st.session_state.database_list=[]
+# st.session_state.snowparksession =""
 get_snowflake_session(False)
 
 if 'account' not in st.session_state or 'user' not in st.session_state or 'password' not in st.session_state or 'role' not in st.session_state:
@@ -122,9 +122,6 @@ if 'initialdf' not in st.session_state:
 if 'grid_key' not in st.session_state:
     st.session_state.grid_key = 0
 
-if 'reload_data' not in st.session_state:
-    st.session_state.reload_data = False
-
 if 'reload_bt' not in st.session_state:
     st.session_state.reload_bt = False
 
@@ -184,6 +181,8 @@ def load_data():
     try:
         df=st.session_state.snowparksession.table(st.session_state.fully_qualified_table_selected).limit(row_limit)
         pdf = df.toPandas() 
+        #df.schema.fields
+        st.session_state.timestamp_list = [structField.name for structField in df.schema.fields if type(structField.datatype).__name__ == 'TimestampType']
     except BaseException as e:
         st.error('Failed to do load table: ' + str(e))
         pdf = pd.DataFrame
@@ -221,16 +220,27 @@ def display_grid(_pdf):
     grid_loaded=True
     st.session_state.grid = grid_table
 
+################## Update DB Functions ###################
 #This is needed because of a refresh bug
 def redraw_grid_next_time():
     st.session_state.grid_key = st.session_state.grid_key +1
-   
+
+def make_cols_timezone_aware(_df):
+    #need to make date columns timezone aware because of a bug in snowpark. 
+    for colname in _df.columns :
+        if _df[colname].dtype.name == 'datetime64[ns]':
+            _df[colname] = _df[colname].map(lambda x: x.tz_localize(timezone.utc))
+            
 def insert_data_callback(_Append_Or_Overwrite, _table_name=st.session_state.table_selected):
     d = st.session_state.snowparksession.create_dataframe(st.session_state.maindf)
+    d.show(10)
+    _table_name = f'"{_table_name}"'
     d.write.save_as_table(_table_name, mode=_Append_Or_Overwrite)
-
+    st.success("Inserted Successful")
+    #st.session_state.reload_data=True
+    
 def create_new_table_callback():
-    insert_data_callback("append",st.session_state.new_table)
+    insert_data_callback('overwrite',st.session_state.new_table)
     st.session_state.snowparksession.sql('commit').collect()
     s = pd.DataFrame({'TABLE_NAME':[st.session_state.new_table]})
     st.session_state.table_list = pd.concat([st.session_state.table_list, s])
@@ -263,7 +273,7 @@ def delete_data_callback():
     try:
         deleted_rows_count = target_df.delete(eval(key_cols1) , source_df)
         st.success(f"Deleted Rows: {deleted_rows_count.rows_deleted}")
-        st.session_state.reload_data=True
+        #st.session_state.reload_data=True
     except BaseException as e:
         st.error('Failed to do delete: ' + str(e))
 
@@ -289,6 +299,7 @@ def merge_data_callback():
     if  len(table_keys) ==0:
         st.error("Please define a Key before merging")
         return
+    make_cols_timezone_aware(st.session_state.initialdf)
     updated_df = get_updated_rows(st.session_state.initialdf,st.session_state.maindf)
     st.session_state.initialdf = st.session_state.maindf.copy(deep=True)
     if len(updated_df.index)==0:
@@ -378,6 +389,8 @@ with st.sidebar.expander(table_message, expanded=True):
 
 def update_db_callback(_update_type):
     try:
+        if _update_type != 'Delete Selected':
+            make_cols_timezone_aware(st.session_state.maindf)
         if _update_type == 'Merge':
             merge_data_callback()            
         elif _update_type == 'Insert - Append':
@@ -389,6 +402,7 @@ def update_db_callback(_update_type):
         else:
             if _update_type == 'Create New Table':
                 create_new_table_callback()
+        st.session_state.reload_data=True
     except BaseException as e:
             st.error('Update Failed: ' + str(e))
 
