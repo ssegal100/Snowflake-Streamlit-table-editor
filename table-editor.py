@@ -1,11 +1,12 @@
 from cmath import e
+from pyparsing import col
 import streamlit as st
 import pandas as pd
 import numpy as np
 from snowflake.snowpark.session import Session
 from snowflake.snowpark import functions as func
 from snowflake.snowpark.types import *
-from snowflake.snowpark.functions import when_not_matched, when_matched
+from snowflake.snowpark.functions import when_not_matched, when_matched, parse_json
 from st_aggrid import AgGrid, GridUpdateMode, JsCode
 from st_aggrid.grid_options_builder import GridOptionsBuilder
 import json
@@ -180,9 +181,8 @@ def get_current_database():
 def load_data():
     try:
         df=st.session_state.snowparksession.table(st.session_state.fully_qualified_table_selected).limit(row_limit)
+        st.session_state.initial_sf_df = df
         pdf = df.toPandas() 
-        #df.schema.fields
-        st.session_state.timestamp_list = [structField.name for structField in df.schema.fields if type(structField.datatype).__name__ == 'TimestampType']
     except BaseException as e:
         st.error('Failed to do load table: ' + str(e))
         pdf = pd.DataFrame
@@ -230,18 +230,33 @@ def make_cols_timezone_aware(_df):
     for colname in _df.columns :
         if _df[colname].dtype.name == 'datetime64[ns]':
             _df[colname] = _df[colname].map(lambda x: x.tz_localize(timezone.utc))
+
+def make_cols_convert_to_variant(_df):
+    #need to make date columns timezone aware because of a bug in snowpark. 
+    for colname in st.session_state.variant_list:
+        _df=_df.with_column(colname, _df(parse_json(colname)))
             
+def create_clean_sf_dataframe(_df):
+    _reorder_table_columns = False
+    variant_list = [structField.name for structField in st.session_state.initial_sf_df.schema.fields if type(structField.datatype).__name__ == 'VariantType']
+    d = st.session_state.snowparksession.create_dataframe(_df)
+    original_column_list = d.columns
+    for colname in variant_list:
+        d=d.with_column(colname, parse_json(d[colname]).cast(VariantType()))
+        _reorder_table_columns = True
+    if _reorder_table_columns:
+        d = d.select(original_column_list)
+    return d
+
 def insert_data_callback(_Append_Or_Overwrite, _table_name=st.session_state.table_selected):
-    d = st.session_state.snowparksession.create_dataframe(st.session_state.maindf)
-    d.show(10)
+    df = create_clean_sf_dataframe(st.session_state.maindf)
     _table_name = f'"{_table_name}"'
-    d.write.save_as_table(_table_name, mode=_Append_Or_Overwrite)
+    df.write.save_as_table(_table_name, mode=_Append_Or_Overwrite)
     st.success("Inserted Successful")
     #st.session_state.reload_data=True
     
 def create_new_table_callback():
     insert_data_callback('overwrite',st.session_state.new_table)
-    st.session_state.snowparksession.sql('commit').collect()
     s = pd.DataFrame({'TABLE_NAME':[st.session_state.new_table]})
     st.session_state.table_list = pd.concat([st.session_state.table_list, s])
     st.session_state.table_selected = st.session_state.new_table
@@ -306,11 +321,10 @@ def merge_data_callback():
         st.success("Inserted Rows: 0,  Updated Rows: 0")
     else:
         target = st.session_state.snowparksession.table(st.session_state.fully_qualified_table_selected)
-        source = st.session_state.snowparksession.create_dataframe(updated_df)
+        source = create_clean_sf_dataframe(updated_df)
         update_clause_dict={}
         insert_clause_list=[]
         
-    # st.write("iteritems: " + st.session_state.maindf.iteritems()[columnName])
     # Create INSERT & UPDATE clause
         for (columnName,data) in st.session_state.maindf.items():
             insert_clause_list.append(source[columnName])
@@ -471,13 +485,13 @@ def reload_callback():
 st.sidebar.button("Reload Data", on_click=reload_callback)
 st.sidebar.button("Add Row", on_click=add_row_callback)
 
-with st.expander('Known Issues:'):
-    st.markdown("""
-    ### Timestamp Columns - Can't write back
-    There is a Snowpark bug that can be addressed by setting account params in the production deployments
-    ``` 
-    alter account <account_locator> set enable_parquet_timestamp_new_logical_type=true 
-    alter account <account_locator> set enable_parquet_new_logical_type_infer_schema=true
-    ```  
-    ### Working on Variant writebacks
-    """)
+# with st.expander('Known Issues:'):
+#     st.markdown("""
+#     ### Timestamp Columns - Can't write back
+#     There is a Snowpark bug that can be addressed by setting account params in the production deployments
+#     ``` 
+#     alter account <account_locator> set enable_parquet_timestamp_new_logical_type=true 
+#     alter account <account_locator> set enable_parquet_new_logical_type_infer_schema=true
+#     ```  
+#     ### Working on Variant writebacks
+#     """)
