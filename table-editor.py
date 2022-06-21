@@ -1,5 +1,3 @@
-from cmath import e
-from pyparsing import col
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,10 +5,10 @@ from snowflake.snowpark.session import Session
 from snowflake.snowpark import functions as func
 from snowflake.snowpark.types import *
 from snowflake.snowpark.functions import when_not_matched, when_matched, parse_json
-from st_aggrid import AgGrid, GridUpdateMode, JsCode
+from st_aggrid import AgGrid, GridUpdateMode
 from st_aggrid.grid_options_builder import GridOptionsBuilder
 import json
-from datetime import timezone, datetime
+from datetime import timezone
 
 st.set_page_config(layout="wide")
 
@@ -190,6 +188,8 @@ def load_data():
 
 grid_loaded=False
 
+################## AGGrid  ###################
+
 def display_grid(_pdf):
     #This is need to work around a bug in AGGrig. When a value is updated all the nulls turn into 'None', so they are not actually null
     c= _pdf.select_dtypes(exclude=np.number).columns
@@ -211,6 +211,8 @@ def display_grid(_pdf):
             fit_columns_on_grid_load=False,
             allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
             enable_enterprise_modules=True,
+            try_to_convert_back_to_original_types = True,
+            #conversion_errors = 'ignore',
         )
     st.session_state.maindf = grid_table['data']
    #This is need to work around a bug in AGGrig. When a value is updated all the nulls turn into 'None', so they are not actually null
@@ -269,6 +271,8 @@ def get_key_join_clasue(_source_df,_target_df):
         key_cols = key_cols + f' ({_target_df}.{key_col_name} == {_source_df}.{key_col_name} )'  
     return key_cols
 
+
+
 def delete_data_callback():
     if  not grid_loaded:
         st.error("No data available.")
@@ -296,7 +300,7 @@ def get_updated_rows(_initial_df,_updated_df):
     ## This does not work when there is a float. The trailing zeros 
     #_initial_df
     #_updated_df
-    origHash = _initial_df.astype(str).apply(lambda x: hash(tuple(x)), axis = 1)
+    #origHash = _initial_df.astype(str).apply(lambda x: hash(tuple(x)), axis = 1)
     newdf = _updated_df[_initial_df.ne(_updated_df).any(axis=1)]
     # _updated_df['Hash'] = _updated_df.astype(str).apply(lambda x: hash(tuple(x)), axis = 1)
     # origHash = _initial_df.astype(str).apply(lambda x: hash(tuple(x)), axis = 1)
@@ -344,7 +348,11 @@ def merge_data_callback():
         st.success(f"Inserted Rows: {merged_row_response.rows_inserted},  Updated Rows: {merged_row_response.rows_updated}")
 
 def add_row_callback():
-    st.session_state.maindf=st.session_state.maindf.append(pd.Series(), ignore_index=True)
+    # this add a row to the top
+    df1 = pd.DataFrame([[np.nan] * len(st.session_state.maindf.columns)], columns=st.session_state.maindf.columns)
+    st.session_state.maindf=df1.append(st.session_state.maindf, ignore_index=True)
+    # this add a row to the bottom
+    #st.session_state.maindf=st.session_state.maindf.append(pd.Series(), ignore_index=True)
     redraw_grid_next_time()  
 
 ####################################################################################################################################
