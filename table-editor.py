@@ -94,9 +94,7 @@ else:
 with st.sidebar.expander(expander_message, expanded=st.session_state.login_expanded):
     with st.form(expander_message):
         login_mode = st.radio("Login Type",("User and Password","SSO"))
-        st.write(st.session_state.account)
         st.text_input("Account", key='account', value=st.session_state.account)
-        st.session_state.account
         st.text_input("User ID", key='user',  value=st.session_state.user)
         if login_mode == "User and Password":
             st.text_input("Password", type="password", key='password',  value=st.session_state.password)
