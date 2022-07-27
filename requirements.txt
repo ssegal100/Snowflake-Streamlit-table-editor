@@ -2,4 +2,4 @@ pyarrow==6.0.0
 pandas
 streamlit
 streamlit-aggrid
-snowflake-connector-python
+snowflake-snowpark-python
