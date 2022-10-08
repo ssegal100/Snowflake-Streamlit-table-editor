@@ -29,6 +29,7 @@ def get_snowflake_session(_force_login):
                 st.session_state.password = connection_parameters["password"]
                 st.session_state.role = connection_parameters["role"]
                 st.session_state.warehouse = connection_parameters["warehouse"]
+                st.session_state.login_timeout = connection_parameters["login_timeout"]
             try:
                 session = Session.builder.configs(connection_parameters).create()
                 st.session_state.snowparksession = session
@@ -72,7 +73,8 @@ def login_callback():
    "account": st.session_state.account,
     "user": st.session_state.user,
     "role": st.session_state.role,
-    "warehouse":st.session_state.warehouse
+    "warehouse":st.session_state.warehouse,
+    "login_timeout": 10
     }
     if st.session_state.authenticator!="":
         connection_parameters["authenticator"] = st.session_state.authenticator
@@ -95,6 +97,7 @@ with st.sidebar.expander(expander_message, expanded=st.session_state.login_expan
     with st.form(expander_message):
         login_mode = st.radio("Login Type",("User and Password","SSO"))
         st.text_input("Account", key='account', value=st.session_state.account)
+      #  st.text_input("Account", key='account')
         st.text_input("User ID", key='user',  value=st.session_state.user)
         if login_mode == "User and Password":
             st.text_input("Password", type="password", key='password',  value=st.session_state.password)
