@@ -240,9 +240,13 @@ def make_cols_convert_to_variant(_df):
         _df=_df.with_column(colname, _df(parse_json(colname)))
             
 def create_clean_sf_dataframe(_df):
+    d = st.session_state.snowparksession.create_dataframe(_df)
+    #if load_type is file then don't check for variants
+    if st.session_state.load_type == "file":
+        return d
+
     _reorder_table_columns = False
     variant_list = [structField.name for structField in st.session_state.initial_sf_df.schema.fields if type(structField.datatype).__name__ == 'VariantType']
-    d = st.session_state.snowparksession.create_dataframe(_df)
     original_column_list = d.columns
     for colname in variant_list:
         d=d.with_column(colname, parse_json(d[colname]).cast(VariantType()))
